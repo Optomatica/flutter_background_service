@@ -43,6 +43,7 @@ public class BackgroundService extends Service implements MethodChannel.MethodCa
     private MethodChannel methodChannel;
     private DartExecutor.DartCallback dartCallback;
     private boolean isManuallyStopped = false;
+    private boolean isMainProcessStarted = false;
 
     String notificationTitle = "Background Service";
     String notificationContent = "Running";
@@ -228,6 +229,10 @@ public class BackgroundService extends Service implements MethodChannel.MethodCa
         if (methodChannel != null) {
             try {
                 methodChannel.invokeMethod("onReceiveData", data);
+                if (data.get("action").equals("stopRecording")) {
+                    Log.e(TAG, "IsMainProcessStarted: stopRecording");
+                    this.isMainProcessStarted = false;
+                }
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -292,6 +297,11 @@ public class BackgroundService extends Service implements MethodChannel.MethodCa
             if (method.equalsIgnoreCase("sendData")) {
                 LocalBroadcastManager manager = LocalBroadcastManager.getInstance(this);
                 Intent intent = new Intent("id.flutter/background_service");
+
+                if (((JSONObject) call.arguments).get("action").equals("startRecording")) {
+                    Log.e(TAG, "IsMainProcessStarted: startRecording");
+                    this.isMainProcessStarted = true;
+                }
                 intent.putExtra("data", ((JSONObject) call.arguments).toString());
                 manager.sendBroadcast(intent);
                 result.success(true);
@@ -303,5 +313,25 @@ public class BackgroundService extends Service implements MethodChannel.MethodCa
         }
 
         result.notImplemented();
+    }
+
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        super.onTaskRemoved(rootIntent);
+        if (!this.isMainProcessStarted) {
+            Log.i(TAG, "MyService onTaskRemoved()");
+            isManuallyStopped = true;
+            Intent intent = new Intent(this, WatchdogReceiver.class);
+            PendingIntent pi;
+            if (SDK_INT >= Build.VERSION_CODES.S) {
+                pi = PendingIntent.getBroadcast(getApplicationContext(), 111, intent, PendingIntent.FLAG_CANCEL_CURRENT | PendingIntent.FLAG_MUTABLE);
+            } else {
+                pi = PendingIntent.getBroadcast(getApplicationContext(), 111, intent, PendingIntent.FLAG_CANCEL_CURRENT);
+            }
+
+            AlarmManager alarmManager = (AlarmManager) getSystemService(ALARM_SERVICE);
+            alarmManager.cancel(pi);
+            stopSelf();
+        }
     }
 }
